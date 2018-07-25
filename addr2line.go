@@ -1,6 +1,7 @@
 package addr2line
 
 import (
+	"fmt"
 	"debug/dwarf"
 	"debug/elf"
 	"io"
@@ -42,7 +43,8 @@ func openElf(r io.ReaderAt) (*elf.File, error) {
 	return f, nil
 }
 
-var globalAddr2LineMapCaching = make(map[string]*addr2LineSymbols)
+var globalAddr2LineMapCaching         = make(map[string]*addr2LineSymbols)
+var globalErrorDebugSymbolFilesCaching = make(map[string]bool)
 
 func makeAddr2LineMap(soPath string) (*addr2LineSymbols, error) {
 	_, ok := globalAddr2LineMapCaching[soPath]
@@ -66,9 +68,8 @@ func makeAddr2LineMap(soPath string) (*addr2LineSymbols, error) {
 
 		symbolsMap := make(map[int]elf.Symbol)
 		var sortedAddrKeys []int
-
 		for _, v := range syms {
-			if v.Info == 0x12 && v.Value > 0 {
+			if len(v.Name) > 0 && v.Value > 0 {
 				symbolsMap[int(v.Value)] = v
 				sortedAddrKeys = append(sortedAddrKeys, int(v.Value))
 			}
@@ -89,10 +90,15 @@ func makeAddr2LineMap(soPath string) (*addr2LineSymbols, error) {
 //GetAddr2LineEntry function A returns a structure Addr2LineEntry with a function name
 //and a file name line number at address in so file with a debug symbol.
 func GetAddr2LineEntry(soPath string, address uint, doDemangle bool) (*Addr2LineEntry, error) {
+	if _, ok := globalErrorDebugSymbolFilesCaching[soPath]; ok == true {
+		return nil, fmt.Errorf("skip because of no symbol section (%s)", soPath)
+	}
+
 	lineSymbols, err := makeAddr2LineMap(soPath)
 
 	if err != nil || lineSymbols == nil {
-		return nil, err
+		globalErrorDebugSymbolFilesCaching[soPath] = true
+		return nil, fmt.Errorf("%v (%s)", err, soPath)
 	}
 
 	//Search uses binary search to find and return the smallest index i in [0, n)
@@ -102,6 +108,11 @@ func GetAddr2LineEntry(soPath string, address uint, doDemangle bool) (*Addr2Line
 		}
 		return false
 	}) - 1
+
+	if fIdx < 0 {
+		//fmt.Println(lineSymbols, soPath, address, fIdx)
+		return nil, fmt.Errorf("index is invalid\n")
+	}
 
 	fAddress := lineSymbols.sortedKeys[fIdx]
 	var functionName string
