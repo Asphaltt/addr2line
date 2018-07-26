@@ -27,6 +27,8 @@ type Addr2LineEntry struct {
 
 	//Line is the number of line in Addr2LineEntry.File at Address
 	Line uint
+
+	Inline bool
 }
 
 type addr2LineSymbols struct {
@@ -60,7 +62,11 @@ func makeAddr2LineMap(soPath string) (*addr2LineSymbols, error) {
 		if err != nil {
 			return nil, err
 		}
-
+/*
+		for _, s := range syms {
+			fmt.Printf("%#v\n", s)
+		}
+*/
 		dwarf, err := fp.DWARF()
 		if err != nil {
 			return nil, err
@@ -69,7 +75,7 @@ func makeAddr2LineMap(soPath string) (*addr2LineSymbols, error) {
 		symbolsMap := make(map[int]elf.Symbol)
 		var sortedAddrKeys []int
 		for _, v := range syms {
-			if len(v.Name) > 0 && v.Value > 0 {
+			if v.Info != 0 && len(v.Name) > 0 && v.Value > 0 {
 				symbolsMap[int(v.Value)] = v
 				sortedAddrKeys = append(sortedAddrKeys, int(v.Value))
 			}
@@ -117,7 +123,11 @@ func GetAddr2LineEntry(soPath string, address uint, doDemangle bool) (*Addr2Line
 	fAddress := lineSymbols.sortedKeys[fIdx]
 	var functionName string
 	if doDemangle == true {
-		functionName, err = demangle.ToString(lineSymbols.symbols[fAddress].Name)
+		fName := lineSymbols.symbols[fAddress].Name
+		if len(fName) > 7 && fName[:7] == "__dl__Z" {
+			fName = fName[5:]
+		}
+		functionName, err = demangle.ToString(fName)
 		if err == demangle.ErrNotMangledName {
 			functionName = lineSymbols.symbols[fAddress].Name
 		}
@@ -127,7 +137,32 @@ func GetAddr2LineEntry(soPath string, address uint, doDemangle bool) (*Addr2Line
 
 	retEntry := &Addr2LineEntry{}
 	var line dwarf.LineEntry
+	var inline bool = false
 	r := lineSymbols.dwarfData.Reader()
+	for {
+		cu, err := r.Next()
+		if err != nil {
+			continue
+		}
+		if cu == nil {
+			break
+		}
+		rg, err := lineSymbols.dwarfData.Ranges(cu)
+		/*
+		fmt.Printf("%#v\n", rg)
+		fmt.Printf("%#v\n\n", cu)
+		*/
+		if err != nil {
+			continue
+		}
+		if len(rg) == 1 {
+			//fmt.Printf("%#v\n", rg)
+			//fmt.Printf("%#v\n\n", cu)
+			if rg[0][0] <= uint64(address) && rg[0][1] > uint64(address) && cu.Tag == dwarf.TagInlinedSubroutine {
+				inline = true
+			}
+		}
+	}
 
 	e, err := r.SeekPC(uint64(address))
 	if err != nil {
@@ -138,17 +173,48 @@ func GetAddr2LineEntry(soPath string, address uint, doDemangle bool) (*Addr2Line
 	if err != nil {
 		return nil, err
 	}
-
-	err = lr.SeekPC(uint64(address), &line)
-	if err != nil {
-		return nil, err
+/*
+	lpos := lr.Tell()
+	for {
+		err := lr.Next(&line)
+		if err == io.EOF {
+			break
+		}
+		fmt.Printf("-- %#v\n", line.File)
+		fmt.Printf("-- %#v\n", line)
 	}
-
+	lr.Seek(lpos)
+*/
+	if inline == true {
+		err := lr.SeekPC(uint64(address), &line)
+		if err != nil {
+			return nil, err
+		}
+		//inline의 경우 prev entry의 line number를 먼저 확인하고..
+		err = lr.SeekPC(uint64(line.Address-1), &line)
+		if err != nil {
+                        return nil, err
+                }
+		//prev entry의 line number가 0이면 다음 entry의 line number를...
+		if line.Line == 0 {
+			err := lr.SeekPC(uint64(address), &line)
+			if err != nil {
+				return nil, err
+			}
+			lr.Next(&line)
+		}
+	}else{
+		err = lr.SeekPC(uint64(address), &line)
+		if err != nil {
+			return nil, err
+		}
+	}
+	//fmt.Printf("%#v\n", line)
 	retEntry.SoPath = soPath
 	retEntry.Address = address
 	retEntry.Func = functionName
 	retEntry.File = line.File.Name
 	retEntry.Line = uint(line.Line)
-
+	retEntry.Inline = inline
 	return retEntry, nil
 }
