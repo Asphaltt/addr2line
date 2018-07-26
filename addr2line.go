@@ -139,19 +139,35 @@ func GetAddr2LineEntry(soPath string, address uint, doDemangle bool) (*Addr2Line
 	var line dwarf.LineEntry
 	var inline bool = false
 	r := lineSymbols.dwarfData.Reader()
+	e, err := r.SeekPC(uint64(address))
+	if err != nil {
+		return nil, err
+	}
+	/*
+	rg2, err := lineSymbols.dwarfData.Ranges(e)
+	fmt.Printf("range : %#v\n", rg2)
+	fmt.Printf("start : %#v\n", e)
+	*/
 	for {
 		cu, err := r.Next()
 		if err != nil {
 			continue
 		}
+
 		if cu == nil {
 			break
 		}
+
+		if cu.Tag == dwarf.TagCompileUnit {
+			break
+		}
 		rg, err := lineSymbols.dwarfData.Ranges(cu)
+
 		/*
 		fmt.Printf("%#v\n", rg)
 		fmt.Printf("%#v\n\n", cu)
 		*/
+
 		if err != nil {
 			continue
 		}
@@ -159,15 +175,19 @@ func GetAddr2LineEntry(soPath string, address uint, doDemangle bool) (*Addr2Line
 			//fmt.Printf("%#v\n", rg)
 			//fmt.Printf("%#v\n\n", cu)
 			if rg[0][0] <= uint64(address) && rg[0][1] > uint64(address) && cu.Tag == dwarf.TagInlinedSubroutine {
+				//fmt.Println("######### inline #########")
 				inline = true
+				break
 			}
 		}
 	}
 
-	e, err := r.SeekPC(uint64(address))
-	if err != nil {
-		return nil, err
-	}
+	//fmt.Println("----------------------- end ---------------------")
+
+	//e, err := r.SeekPC(uint64(address))
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	lr, err := lineSymbols.dwarfData.LineReader(e)
 	if err != nil {
@@ -201,7 +221,11 @@ func GetAddr2LineEntry(soPath string, address uint, doDemangle bool) (*Addr2Line
 			if err != nil {
 				return nil, err
 			}
-			lr.Next(&line)
+			var line2 dwarf.LineEntry
+			lr.Next(&line2)
+			if line2.Line != 0 {
+				line = line2
+			}
 		}
 	}else{
 		err = lr.SeekPC(uint64(address), &line)
