@@ -10,7 +10,7 @@ import (
 var globalT *testing.T
 
 func printUsage() {
-	globalT.Error("usage: addr2line [so library paht] [hexadecimal address]\n\tex) addr2line libc.so 0x493c\n")
+	globalT.Error("usage: addr2line [so library path] [hexadecimal address]\n\tex) addr2line libc.so 0x493c\n")
 }
 
 func usage() {
@@ -43,12 +43,17 @@ func TestGetAddr2LineEntry(t *testing.T) {
 		t.Errorf("%v\n", err)
 	}
 
-	e, err := GetAddr2LineEntry(flag.Arg(0), uint(addr), true)
+	a2l, err := New(flag.Arg(0))
+	if err != nil {
+		t.Error(err)
+		return
+	}
 
+	e, err := a2l.Get(uint64(addr), true)
 	if err != nil {
 		t.Error(err)
 	} else {
-		//t.Logf("%v\n", e)
+		// t.Logf("%v\n", e)
 		t.Logf("library  : %s\n", e.SoPath)
 		t.Logf("address  : 0x%x\n", e.Address)
 		t.Logf("function : %s\n", e.Func)
@@ -82,12 +87,17 @@ func BenchmarkGetAddr2LineEntry(t *testing.B) {
 		t.Errorf("%v\n", err)
 	}
 
-	e, err := GetAddr2LineEntry(flag.Arg(0), uint(addr), true)
+	a2l, err := New(flag.Arg(0))
+	if err != nil {
+		t.Error(err)
+		return
+	}
 
+	e, err := a2l.Get(uint64(addr), true)
 	if err != nil {
 		t.Error(err)
 	} else {
-		//t.Logf("%v\n", e)
+		// t.Logf("%v\n", e)
 		t.Logf("library  : %s\n", e.SoPath)
 		t.Logf("address  : 0x%x\n", e.Address)
 		t.Logf("function : %s\n", e.Func)
