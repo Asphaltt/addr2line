@@ -5,6 +5,8 @@ import (
 	"debug/elf"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -46,9 +48,23 @@ type Addr2Line struct {
 // New parses the ELF file at soPath, extracts the debug information and
 // symbols. Then returns an Addr2Line struct.
 func New(soPath string) (*Addr2Line, error) {
-	fp, err := elf.Open(soPath)
+	fp, err := os.Open(soPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open %s: %w", soPath, err)
+	}
+	defer fp.Close()
+
+	return NewAt(fp, soPath)
+}
+
+// NewAt parses the ELF file from the reader r, extracts the debug information
+// and symbols. Then returns an Addr2Line struct.
+//
+// soPath is an optional parameter to provide more specific error messages.
+func NewAt(r io.ReaderAt, soPath string) (*Addr2Line, error) {
+	fp, err := elf.NewFile(r)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open reader: %w", err)
 	}
 	defer fp.Close()
 
