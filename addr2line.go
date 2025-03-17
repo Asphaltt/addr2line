@@ -99,6 +99,16 @@ func NewAt(r io.ReaderAt, soPath string) (*Addr2Line, error) {
 	return &a2l, nil
 }
 
+func (a2l *Addr2Line) FindBySymbol(symbol string) (*Addr2LineEntry, error) {
+	for _, entry := range a2l.symbols {
+		if entry.Name == symbol {
+			return a2l.Get(entry.Value, false)
+		}
+	}
+
+	return nil, fmt.Errorf("%s not found", symbol)
+}
+
 // Get returns the Addr2LineEntry for the given address.
 func (a2l *Addr2Line) Get(address uint64, doDemangle bool) (*Addr2LineEntry, error) {
 	// Search uses binary search to find and return the smallest index i in [0, n)
